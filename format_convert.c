@@ -1,24 +1,11 @@
-#ifndef PIC_FORMAT_CONVERT_H
-#define PIC_FORMAT_CONVERT_H
-
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include "include/universal.h"
+#include "format_convert.h"
 #define clip(var) ((var>=255)?255:(var<=0)?0:var)
 
-enum rgb_format{
-    RGB_FORMAT_16 = 2,//size of a pixel in byte
-    RGB_FORMAT_24 = 3, 
-    RGB_FORMAT_32 = 4,
-};
-
-enum angular_degree{//clockwise
-    ANGULAR_DEG_90 = 1,
-    ANGULAR_DEG_180 = 2,
-    ANGULAR_DEG_270 = 3,
-};
 
 typedef unsigned char  BYTE;
 typedef unsigned short WORD;
@@ -388,6 +375,7 @@ int RGB2BMP(int width,int height,uint8_t* rgbData,uint8_t* bmpData,int rgb_forma
 }
 
 //test main
+#if 0
 void main(){
     int rgb_format = RGB_FORMAT_24;
     int w = 640,h = 480;
@@ -396,7 +384,6 @@ void main(){
     uint8_t in_buf[w*h*3/2];//yuv420
     uint8_t out_buf[dst_w*h*4];
     uint8_t out_buf_90[dst_w*h*4];
-//int out_buf2[640*480];//888
     memset(in_buf,0,sizeof(in_buf));
     memset(out_buf,0,sizeof(out_buf));
     memset(out_buf_90,0,sizeof(out_buf_90));

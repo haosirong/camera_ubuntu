@@ -6,13 +6,21 @@
 #include <sys/mman.h>
 #include <linux/videodev2.h>
 #include <linux/aufs_type.h>
+#include <linux/fb.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
+
 #include "ion/ionalloc.h"
+#include "format_convert.h"
 
 #define PAGE_SIZE 4096
+
+#define TRUE        1   
+#define FALSE       0   
+#define MAX(x,y)        ((x)>(y)?(x):(y))   
+#define MIN(x,y)        ((x)<(y)?(x):(y)) 
 
 #define  LOGD(...)  do {printf(__VA_ARGS__);printf("\n");} while (0)
 #define DBG(fmt, args...) LOGD("%s:%d, " fmt, __FUNCTION__, __LINE__, ##args);
@@ -27,17 +35,29 @@ do \
 } while (0)
 
 #define VIDEO_DEVICE "/dev/video0"
+#define FB_DEVICE "/dev/fb0"
 #define IMAGE_WIDTH 640
 #define IMAGE_HEIGHT 480
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_HEIGHT * 3/2)  //yuv420
+
+#define PIC_WIDTH 800 //for adapt embeded device
+#define PIC_HEIGHT 480
+#define PIC_SIZE (PIC_WIDTH * PIC_HEIGHT)
+
 #define BUFFER_COUNT 4
 
 extern int ion_alloc(struct ion_device_t *ion, unsigned long size, enum _ion_heap_type type,ion_buffer_t * *data);
 
 int cam_fd = -1;
+int fb_fd = -1;
+
 struct v4l2_buffer video_buffer[BUFFER_COUNT];
 uint8_t* video_buffer_ptr[BUFFER_COUNT];
 uint8_t yuv_buf[IMAGE_SIZE];
+uint8_t rgb_buf[PIC_SIZE*4];//4 is for max rgb format,rgb32
+uint8_t rgb_buf_90[PIC_SIZE*4];//rotate 90 for match embeded device
+
+uint8_t* fb_mem;//framebuffer addr
 
 int cam_open()
 {
@@ -47,9 +67,48 @@ int cam_open()
     else return -1;
 }
 
+int fb_open()   
+{   
+    unsigned long screensize; 
+    struct fb_fix_screeninfo fb_fix;   
+    struct fb_var_screeninfo fb_var; 
+    fb_fd = open(FB_DEVICE, O_RDWR);
+printf("121212%s %d\n",__func__,__LINE__);   
+    if (fb_fd < 0)
+        return -1;
+    
+    if (-1 == ioctl(fb_fd,FBIOGET_VSCREENINFO,&fb_var))   
+    {   
+        printf("ioctl FBIOGET_VSCREENINFO\n");   
+        return -1;   
+    }   
+    if (-1 == ioctl(fb_fd,FBIOGET_FSCREENINFO,&fb_fix))   
+    {   
+        printf("ioctl FBIOGET_FSCREENINFO\n");   
+        return -1;   
+    } 
+   
+    screensize = fb_var.xres * fb_var.yres * fb_var.bits_per_pixel / 8;  
+printf("121212%s %d\n",__func__,__LINE__); 
+    fb_mem = (uint8_t*)mmap(NULL, fb_fix.smem_len ,PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
+printf("1111116 %p\n",fb_mem);   
+    if (-1L == (long) fb_mem)   
+    {   
+        return -1;
+    }
+    return 0;
+}   
+  
 int cam_close()
 {
     close(cam_fd);
+
+    return 0;
+}
+
+int fb_close()
+{
+    close(fb_fd);
 
     return 0;
 }
@@ -197,16 +256,31 @@ int cam_get_image(uint8_t* out_buffer, int out_buffer_size)
     return 0;
 }
 
+//480*800
+void dispRGB(int width,int height,uint8_t *rgb){
+/*    int i,j;
+    uint16_t rgb16;
+    for(j=0;j<height;j++){
+        for(i=0;i<width;i++){
+            rgb16 = (((uint16_t)rgb[(j*width+i)*3]>>3)<<11) | (((uint16_t)rgb[(j*width+i)*3+1]>>2)<<5) | (((uint16_t)rgb[(j*width+i)*3+2]>>3)<<0);
+            memcpy(fb_mem + (j*width+i)*sizeof(uint16_t),&rgb16,sizeof(uint16_t));
+        }
+    }*/
+    memcpy(fb_mem ,rgb,width*height*sizeof(uint16_t));
+}
+
 int main()
 {
     int i;
     int ret;
-    int rgb_format = RGB_FORMAT_24;
-    int w = 640,h = 480;
-    int dst_w = 800;
+    int rgb_format = RGB_FORMAT_16;
+//    int w = 640,h = 480;
+//    int dst_w = 800;
 
 
-    ret = cam_open();
+    ret = cam_open(); 
+    ASSERT(ret==0);
+    ret = fb_open();
     ASSERT(ret==0);
 
     ret = cam_select(0);
@@ -238,9 +312,16 @@ int main()
         {
             LOGD("open() failed: %d(%s)", errno, strerror(errno));
         }*/
+
+        nv12torgb(IMAGE_WIDTH,IMAGE_HEIGHT,yuv_buf,rgb_buf,PIC_WIDTH,rgb_format);
+
+        rotateAngular(PIC_WIDTH,PIC_HEIGHT,0,rgb_format,rgb_buf,rgb_buf_90);
+        dispRGB(PIC_HEIGHT,PIC_WIDTH,rgb_buf_90);//for adapt screen,we swap w and h.
     }
 
     ret = cam_close();
+    ASSERT(ret==0);
+    ret = fb_close();
     ASSERT(ret==0);
 
     return 0;
