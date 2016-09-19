@@ -2,10 +2,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include "include/universal.h"
 #include "format_convert.h"
 #define clip(var) ((var>=255)?255:(var<=0)?0:var)
 
+extern bool pic_gray;
 
 typedef unsigned char  BYTE;
 typedef unsigned short WORD;
@@ -162,8 +164,13 @@ int nv12torgb(int width, int height, char *src, void *dst,int dstbuf_w,int rgb_f
 //        cur = line;
         for( i = 0 ; i < width ; i++ ){
             c = y[j*width+i] - 16;
-            d = misc[(j>>1)*width+(i>>1<<1)  ] - 128;
-            e = misc[(j>>1)*width+(i>>1<<1)+1] - 128;
+            if(pic_gray == true){//trigger by key press
+                d=0;e=0;
+            }
+            else{
+                d = misc[(j>>1)*width+(i>>1<<1)  ] - 128;
+                e = misc[(j>>1)*width+(i>>1<<1)+1] - 128;
+            }
             switch(rgb_format){
                 case RGB_FORMAT_16:
                     r = clip(( 298 * c           + 409 * e + 128) >> 8);
@@ -292,6 +299,41 @@ float Y,U,V;
 
 		V = 0.5 R - 0.4187 G - 0.0813 B + 128
 }*/
+
+//only support rgb32
+int yuyvtorgb(int width, int height, char *src, void *dst,int dstbuf_w,int rgb_format)
+{
+    uint8_t *misc = src;
+    uint8_t *line = dst;
+    uint8_t *cur;
+    int c, d, e;
+    uint8_t  r, g, b;
+    uint16_t rgb16;
+    uint16_t *pRGB16;
+    int i,j;
+
+    unsigned char* t = misc;
+    for( j = 0 ; j < height ; j++ ){
+        cur = line;
+        for( i = 0 ; i < width ; i+=2 ){
+            c = *(t+0) - 16;    // Y1
+            d = *(t+1) - 128;   // U
+            e = *(t+3) - 128;   // V
+
+            (*cur) = clip(( 298 * c           + 409 * e + 128) >> 8);cur++;
+            (*cur) = clip(( 298 * c - 100 * d - 208 * e + 128) >> 8);cur++;
+            (*cur) = clip(( 298 * c + 516 * d           + 128) >> 8);cur+=2;
+
+            c = *(t+2) - 16;    // Y2
+            (*cur) = clip(( 298 * c           + 409 * e + 128) >> 8);cur++;
+            (*cur) = clip(( 298 * c - 100 * d - 208 * e + 128) >> 8);cur++;
+            (*cur) = clip(( 298 * c + 516 * d           + 128) >> 8);cur+=2;
+
+            t += 4;
+        }
+        line += dstbuf_w<<2;
+    }
+}
 
 //TODO now we only implement the 90 degree rotate 
 //in rgb32 mode

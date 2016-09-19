@@ -4,12 +4,14 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <linux/videodev2.h>
 #include <linux/aufs_type.h>
 #include <linux/fb.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 
 #include "ion/ionalloc.h"
@@ -47,6 +49,10 @@ do \
 #define BUFFER_COUNT 4
 
 extern int ion_alloc(struct ion_device_t *ion, unsigned long size, enum _ion_heap_type type,ion_buffer_t * *data);
+
+extern void readEvent();
+
+extern int key_init();
 
 int cam_fd = -1;
 int fb_fd = -1;
@@ -89,9 +95,7 @@ printf("121212%s %d\n",__func__,__LINE__);
     } 
    
     screensize = fb_var.xres * fb_var.yres * fb_var.bits_per_pixel / 8;  
-printf("121212%s %d\n",__func__,__LINE__); 
     fb_mem = (uint8_t*)mmap(NULL, fb_fix.smem_len ,PROT_READ | PROT_WRITE, MAP_SHARED, fb_fd, 0);
-printf("1111116 %p\n",fb_mem);   
     if (-1L == (long) fb_mem)   
     {   
         return -1;
@@ -186,6 +190,7 @@ int cam_init()
         }
         DBG("buffer.length: %d", buffer.length);
         DBG("buffer.m.offset: %d", buffer.m.offset);
+
 /*        video_buffer_ptr[i] = (uint8_t*) mmap(NULL, buffer.length, PROT_READ, MAP_SHARED, cam_fd, buffer.m.offset);
         if (video_buffer_ptr[i] == MAP_FAILED)
         {
@@ -274,6 +279,8 @@ int main()
     int i;
     int ret;
     int rgb_format = RGB_FORMAT_16;
+    struct timeval tv;
+    pthread_t keypad_th;
 //    int w = 640,h = 480;
 //    int dst_w = 800;
 
@@ -289,36 +296,43 @@ int main()
     ret = cam_init();
     ASSERT(ret==0);
 
-    int count = 0;
+    ret = key_init();
+    ASSERT(ret==0);
+    pthread_create(&keypad_th,NULL,(void  *) readEvent,NULL); 
+
+
+/*    int count = 0;
+    char filename[32];
+    sprintf(filename, "test.yuv");
+    int fd = open(filename, O_RDWR | O_CREAT);*/
+
     while (1)
     {
         ret = cam_get_image(yuv_buf, IMAGE_SIZE);
         ASSERT(ret==0);
 
+        gettimeofday(&tv, NULL);
+        LOGD("current time %ld.%06ld",tv.tv_sec,tv.tv_usec);
+
         char tmp[64] = {"---\n"};
         for (i=0; i<16; i++)
             sprintf(&tmp[strlen(tmp)], "%02x ", yuv_buf[i]);
         LOGD("%s", tmp);
-
-/*        char filename[32];
-        sprintf(filename, "%05d.yuv", count++);
-        int fd = open(filename, O_RDWR | O_CREAT);
-        if (fd >= 0)
-        {
-            write(fd, yuv_buf, IMAGE_SIZE);
-            close(fd);
-        }
-        else
-        {
-            LOGD("open() failed: %d(%s)", errno, strerror(errno));
-        }*/
+        
+//        if(count < 100){//generate yuv test file
+//            write(fd, yuv_buf, IMAGE_SIZE);
+//        }
 
         nv12torgb(IMAGE_WIDTH,IMAGE_HEIGHT,yuv_buf,rgb_buf,PIC_WIDTH,rgb_format);
 
         rotateAngular(PIC_WIDTH,PIC_HEIGHT,0,rgb_format,rgb_buf,rgb_buf_90);
-        dispRGB(PIC_HEIGHT,PIC_WIDTH,rgb_buf_90);//for adapt screen,we swap w and h.
-    }
+        dispRGB(PIC_HEIGHT,PIC_WIDTH,rgb_buf_90);//for adapt embeded screen,we swap w and h.
 
+        //count++;
+    }
+    
+    pthread_join(keypad_th,NULL);
+//    close(fd);
     ret = cam_close();
     ASSERT(ret==0);
     ret = fb_close();

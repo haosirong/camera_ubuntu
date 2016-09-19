@@ -15,6 +15,8 @@ enum angular_degree{//clockwise
 
 int nv12torgb(int width, int height, char *src, void *dst,int dstbuf_w,int rgb_format);
 
+int yuyvtorgb(int width, int height, char *src, void *dst,int dstbuf_w,int rgb_format);
+
 int rotateAngular(int width,int height,int angular,int rgb_format,uint8_t* inRGB,uint8_t* outRGB);
 
 int RGB2BMP(int width,int height,uint8_t* rgbData,uint8_t* bmpData,int rgb_format);
