@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <pthread.h>  
 int keypad_fd = -1;
-bool pic_gray = true;
+bool video_enable = false;
 
 int open_device(const char *device)
 {
@@ -84,7 +84,7 @@ void readEvent(){
             read(keypad_fd,&event,sizeof(event));
             if(event.type == EV_KEY){
                 if(event.value == 1)//key pressed down
-                    pic_gray = !pic_gray;
+                    video_enable = !video_enable;
                     printf("read key event\n");
             }
         }

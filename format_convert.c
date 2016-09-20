@@ -7,7 +7,7 @@
 #include "format_convert.h"
 #define clip(var) ((var>=255)?255:(var<=0)?0:var)
 
-extern bool pic_gray;
+extern bool video_enable;
 
 typedef unsigned char  BYTE;
 typedef unsigned short WORD;
@@ -164,7 +164,7 @@ int nv12torgb(int width, int height, char *src, void *dst,int dstbuf_w,int rgb_f
 //        cur = line;
         for( i = 0 ; i < width ; i++ ){
             c = y[j*width+i] - 16;
-            if(pic_gray == true){//trigger by key press
+            if(video_enable == false){//use gray picture when not record video
                 d=0;e=0;
             }
             else{

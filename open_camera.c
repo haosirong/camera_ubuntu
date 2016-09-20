@@ -11,11 +11,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <pthread.h>
 
 
 #include "ion/ionalloc.h"
 #include "format_convert.h"
+#include "h264_encoder.h"
 
 #define PAGE_SIZE 4096
 
@@ -54,6 +56,14 @@ extern void readEvent();
 
 extern int key_init();
 
+extern bool video_enable;
+
+/*extern int h264_init();
+extern int h264_deinit();
+extern int h264_enable();
+extern int h264_disable();
+extern int h264_encode(uint8_t* yuv_buf);
+*/
 int cam_fd = -1;
 int fb_fd = -1;
 
@@ -64,6 +74,7 @@ uint8_t rgb_buf[PIC_SIZE*4];//4 is for max rgb format,rgb32
 uint8_t rgb_buf_90[PIC_SIZE*4];//rotate 90 for match embeded device
 
 uint8_t* fb_mem;//framebuffer addr
+bool video_pre_status = false;
 
 int cam_open()
 {
@@ -300,6 +311,8 @@ int main()
     ASSERT(ret==0);
     pthread_create(&keypad_th,NULL,(void  *) readEvent,NULL); 
 
+    ret = h264_init();
+    ASSERT(ret==0);
 
 /*    int count = 0;
     char filename[32];
@@ -310,6 +323,21 @@ int main()
     {
         ret = cam_get_image(yuv_buf, IMAGE_SIZE);
         ASSERT(ret==0);
+
+        if(video_pre_status != video_enable){
+            if(video_enable){
+                h264_enable();
+                printf("ffhsr enable h264 encode\n");
+            }
+            else{
+                h264_disable();
+                printf("ffhsr disable h264 encode\n");
+            }
+            video_pre_status = video_enable;
+        }
+
+        if(video_enable)
+            h264_encode(yuv_buf);
 
         gettimeofday(&tv, NULL);
         LOGD("current time %ld.%06ld",tv.tv_sec,tv.tv_usec);
@@ -337,7 +365,7 @@ int main()
     ASSERT(ret==0);
     ret = fb_close();
     ASSERT(ret==0);
-
+    h264_deinit();
     return 0;
 }
 
