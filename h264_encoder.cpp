@@ -1,240 +1,194 @@
 /**
- * 最简单的基于FFmpeg的视频编码器
- * Simplest FFmpeg Video Encoder
- * 
+ * 最简单的基于X264的视频编码器
+ * Simplest X264 Encoder
+ *
  * 雷霄骅 Lei Xiaohua
  * leixiaohua1020@126.com
  * 中国传媒大学/数字电视技术
  * Communication University of China / Digital TV Technology
  * http://blog.csdn.net/leixiaohua1020
- * 
- * 本程序实现了YUV像素数据编码为视频码流（H264，MPEG2，VP8等等）。
- * 是最简单的FFmpeg视频编码方面的教程。
- * 通过学习本例子可以了解FFmpeg的编码流程。
- * This software encode YUV420P data to H.264 bitstream.
- * It's the simplest video encoding software based on FFmpeg. 
- * Suitable for beginner of FFmpeg 
+ *
+ * 本程序可以YUV格式的像素数据编码为H.264码流，是最简单的
+ * 基于libx264的视频编码器
+ *
+ * This software encode YUV data to H.264 bitstream.
+ * It's the simplest encoder example based on libx264.
  */
-
-
 #include <stdio.h>
+#include <stdlib.h>
+
+#include <stdint.h>
+#include <string.h>
+
 #include "h264_encoder.h"
 
-#define __STDC_CONSTANT_MACROS
-
-#ifdef _WIN32
-//Windows
+#if defined ( __cplusplus)
 extern "C"
 {
-#include "libavutil/opt.h"
-#include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
+#include "x264.h"
 };
 #else
-//Linux...
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-#include <libavutil/opt.h>
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#ifdef __cplusplus
-};
-#endif
+#include "x264.h"
 #endif
 
 #define IMAGE_WIDTH 640
 #define IMAGE_HEIGHT 480
-#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_HEIGHT * 3/2)  //yuv420
+#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_HEIGHT * 3 / 2)
 
-AVFormatContext* pFormatCtx;
-AVCodecContext* pCodecCtx;
-AVStream* video_st;
-uint8_t* picture_buf;
-AVFrame* pFrame;
-AVPacket pkt;
-int framecnt=0;
-int count = 0;
+//FILE* fp_src  = fopen("../cuc_ieschool_640x360_yuv444p.yuv", "rb");
+//FILE* fp_src  = NULL;
+FILE* fp_dst = NULL;
+	
+static int count;
 
-int flush_encoder(AVFormatContext *fmt_ctx,unsigned int stream_index){
-	int ret;
-	int got_frame;
-	AVPacket enc_pkt;
-	if (!(fmt_ctx->streams[stream_index]->codec->codec->capabilities &
-		CODEC_CAP_DELAY))
-		return 0;
-	while (1) {
-		enc_pkt.data = NULL;
-		enc_pkt.size = 0;
-		av_init_packet(&enc_pkt);
-		ret = avcodec_encode_video2 (fmt_ctx->streams[stream_index]->codec, &enc_pkt,
-			NULL, &got_frame);
-		av_frame_free(NULL);
-		if (ret < 0)
-			break;
-		if (!got_frame){
-			ret=0;
-			break;
-		}
-		printf("ffhsr Flush Encoder: Succeed to encode 1 frame!\tsize:%5d\n",enc_pkt.size);
-		/* mux encoded frame */
-		ret = av_write_frame(fmt_ctx, &enc_pkt);
-		if (ret < 0)
-			break;
-	}
-	return ret;
-}
+x264_nal_t* pNals = NULL;
+x264_t* pHandle   = NULL;
+x264_picture_t* pPic_in = NULL;
+x264_picture_t* pPic_out = NULL;
+x264_param_t* pParam = NULL;
+uint8_t* pic_buf = NULL;
 
 int h264_init()
 {
-	AVOutputFormat* fmt;
-	AVCodec* pCodec;
-	//FILE *in_file = fopen("src01_480x272.yuv", "rb");	//Input raw YUV data 
-	//FILE *in_file = fopen("../ds_480x272.yuv", "rb");   //Input raw YUV data
-	//int in_w=480,in_h=272;                              //Input data's width and height
-	int in_w=IMAGE_WIDTH,in_h=IMAGE_HEIGHT;                              //Input data's width and height
-	//const char* out_file = "src01.h264";              //Output Filepath 
-	//const char* out_file = "src01.ts";
-	//const char* out_file = "src01.hevc";
 
-	av_register_all();
-	//Method1.
-	pFormatCtx = avformat_alloc_context();
-	//Guess Format
-	fmt = av_guess_format(NULL, "test.h264", NULL);
-	pFormatCtx->oformat = fmt;
+	int ret;
+    int csp=X264_CSP_NV12;//color space
+
+    pPic_in = (x264_picture_t*)malloc(sizeof(x264_picture_t));
+    pPic_out = (x264_picture_t*)malloc(sizeof(x264_picture_t));
+    pParam = (x264_param_t*)malloc(sizeof(x264_param_t));
+    pic_buf = (uint8_t*)calloc(1,IMAGE_SIZE);
+    if(pic_buf == NULL){
+        printf("cannot alloc picture buffer\n");
+        return -1;
+    }
+        
+
+    //fp_src  = fopen("test.yuv", "rb");
+    fp_dst = fopen("test.h264", "wb");
 	
-	//Method 2.
-	//avformat_alloc_output_context2(&pFormatCtx, NULL, NULL, out_file);
-	//fmt = pFormatCtx->oformat;
-
-
-	video_st = avformat_new_stream(pFormatCtx, 0);
-	video_st->time_base.num = 1; 
-	video_st->time_base.den = 25;  
-
-	if (video_st==NULL){
-		return -1;
-	}
-	//Param that must set
-	pCodecCtx = video_st->codec;
-	//pCodecCtx->codec_id =AV_CODEC_ID_HEVC;
-	pCodecCtx->codec_id = fmt->video_codec;
-	pCodecCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-	pCodecCtx->pix_fmt = AV_PIX_FMT_NV12;
-	pCodecCtx->width = in_w;  
-	pCodecCtx->height = in_h;
-	pCodecCtx->time_base.num = 1;  
-	pCodecCtx->time_base.den = 25;  
-	pCodecCtx->bit_rate = 400000;  
-	pCodecCtx->gop_size=250;
-	//H264
-	//pCodecCtx->me_range = 16;
-	//pCodecCtx->max_qdiff = 4;
-	//pCodecCtx->qcompress = 0.6;
-	pCodecCtx->qmin = 10;
-	pCodecCtx->qmax = 51;
-
-	//Optional Param
-	pCodecCtx->max_b_frames=3;
-
-	// Set Option
-	AVDictionary *param = 0;
-	//H.264
-	if(pCodecCtx->codec_id == AV_CODEC_ID_H264) {
-		av_dict_set(&param, "preset", "slow", 0);
-		av_dict_set(&param, "tune", "zerolatency", 0);
-		//av_dict_set(&param, "profile", "main", 0);
-	}
-	//H.265
-	if(pCodecCtx->codec_id == AV_CODEC_ID_H265){
-		av_dict_set(&param, "preset", "ultrafast", 0);
-		av_dict_set(&param, "tune", "zero-latency", 0);
-	}
-
-	pCodec = avcodec_find_encoder(pCodecCtx->codec_id);
-	if (!pCodec){
-		printf("Can not find encoder! \n");
-		return -1;
-	}
-	if (avcodec_open2(pCodecCtx, pCodec,&param) < 0){
-		printf("Failed to open encoder! \n");
+	//Check
+	if(/*fp_src==NULL||*/fp_dst==NULL){
+		printf("Error open files.\n");
 		return -1;
 	}
 
-    return 0;
+	x264_param_default(pParam);
+	pParam->i_width   = IMAGE_WIDTH; 
+	pParam->i_height  = IMAGE_HEIGHT;
+	/*
+	//Param
+	pParam->i_log_level  = X264_LOG_DEBUG;
+	pParam->i_threads  = X264_SYNC_LOOKAHEAD_AUTO;
+	pParam->i_frame_total = 0;
+	pParam->i_keyint_max = 10;
+	pParam->i_bframe  = 5;
+	pParam->b_open_gop  = 0;
+	pParam->i_bframe_pyramid = 0;
+	pParam->rc.i_qp_constant=0;
+	pParam->rc.i_qp_max=0;
+	pParam->rc.i_qp_min=0;
+	pParam->i_bframe_adaptive = X264_B_ADAPT_TRELLIS;
+	pParam->i_fps_den  = 1; 
+	pParam->i_fps_num  = 25;
+	pParam->i_timebase_den = pParam->i_fps_num;
+	pParam->i_timebase_num = pParam->i_fps_den;
+	*/
+	pParam->i_csp=csp;
+	x264_param_apply_profile(pParam, x264_profile_names[5]);//high444
+
+	x264_picture_init(pPic_out);
+	x264_picture_alloc(pPic_in, csp, pParam->i_width, pParam->i_height);
 }
 
 int h264_enable(){
-    char* out_file = "test.h264";
+    count = 0;
+	pHandle = x264_encoder_open(pParam);
 
-	//Open output URL
-	if (avio_open(&pFormatCtx->pb,out_file, AVIO_FLAG_READ_WRITE) < 0){
-		printf("Failed to open output file! \n");
-		return -1;
-	}
-
-	//Show some Information
-	av_dump_format(pFormatCtx, 0, out_file, 1);
-
-	pFrame = av_frame_alloc();
-	picture_buf = (uint8_t *)av_malloc(IMAGE_SIZE);
-	avpicture_fill((AVPicture *)pFrame, picture_buf, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height);
-	//Write File Header
-	avformat_write_header(pFormatCtx,NULL);
-
-	av_new_packet(&pkt,IMAGE_SIZE);
-
+	//ret = x264_encoder_headers(pHandle, &pNals, &iNal);
 }
-int h264_encode(uint8_t* yuv_buf){
-	int y_size = pCodecCtx->width * pCodecCtx->height;
 
-    memcpy(picture_buf,yuv_buf,IMAGE_SIZE);
-    pFrame->data[0] = picture_buf;              // Y
-    pFrame->data[1] = picture_buf+ y_size;      // UV panel
-    //pFrame->data[2] = picture_buf+ y_size*5/4;  // V
-    //PTS
-    pFrame->pts = count;
+int h264_encode(uint8_t* yuv_buf){
+    int i,iNal   = 0;
+    int ret;
+	int y_size = pParam->i_width * pParam->i_height;
+
+    memcpy(pic_buf,yuv_buf,IMAGE_SIZE);    
+	
+    switch(pParam->i_csp){
+    case X264_CSP_I444:{
+        pPic_in->img.plane[0] = pic_buf;
+        pPic_in->img.plane[1] = pic_buf + y_size;
+        pPic_in->img.plane[2] = pic_buf + y_size *2;
+//        fread(pPic_in->img.plane[0],y_size,1,fp_src);	//Y
+//        fread(pPic_in->img.plane[1],y_size,1,fp_src);	//U
+//        fread(pPic_in->img.plane[2],y_size,1,fp_src);	//V
+        break;}
+    case X264_CSP_I420:{
+        pPic_in->img.plane[0] = pic_buf;
+        pPic_in->img.plane[1] = pic_buf + y_size;
+        pPic_in->img.plane[2] = pic_buf + y_size *5/4;
+//        fread(pPic_in->img.plane[0],y_size,1,fp_src);	//Y
+//        fread(pPic_in->img.plane[1],y_size/4,1,fp_src);	//U
+//        fread(pPic_in->img.plane[2],y_size/4,1,fp_src);	//V
+        break;}
+    case X264_CSP_NV12:{
+        pPic_in->img.plane[0] = pic_buf;
+        pPic_in->img.plane[1] = pic_buf + y_size;
+//        fread(pPic_in->img.plane[0],y_size,1,fp_src);	//Y
+//        fread(pPic_in->img.plane[1],y_size/2,1,fp_src);	//UV
+        break;}
+    default:{
+        printf("Colorspace Not Support.\n");
+        return -1;}
+    }
+    pPic_in->i_pts = count;
     count++;
-    int got_picture=0;
-    //Encode
-    int ret = avcodec_encode_video2(pCodecCtx, &pkt,pFrame, &got_picture);
-    if(ret < 0){
-        printf("Failed to encode! \n");
+
+    ret = x264_encoder_encode(pHandle, &pNals, &iNal, pPic_in, pPic_out);
+    if (ret< 0){
+        printf("Error.\n");
         return -1;
     }
-    if (got_picture==1){
-        printf("ffhsr Succeed to encode frame: %5d\tsize:%5d\n",framecnt,pkt.size);
-        framecnt++;
-        pkt.stream_index = video_st->index;
-        ret = av_write_frame(pFormatCtx, &pkt);
-        av_free_packet(&pkt);
-    }
+
+    printf("ffhsr Succeed encode frame: %5d\n",count);
+
+    for ( i = 0; i < iNal; ++i){
+        fwrite(pNals[i].p_payload, 1, pNals[i].i_payload, fp_dst);
+	}
+
 }
 
 int h264_disable(){
-	//Flush Encoder
-	int ret = flush_encoder(pFormatCtx,0);
-	if (ret < 0) {
-		printf("Flushing encoder failed\n");
-		return -1;
+	int i=0,j;
+    int iNal = 0;
+    int ret;
+	//flush encoder
+	while(1){
+		ret = x264_encoder_encode(pHandle, &pNals, &iNal, NULL, pPic_out);
+		if(ret==0){
+			break;
+		}
+		printf("ffhsr Flush 1 frame. count:%d\n",i);
+		for (j = 0; j < iNal; ++j){
+			fwrite(pNals[j].p_payload, 1, pNals[j].i_payload, fp_dst);
+		}
+		i++;
 	}
-
-	//Write file trailer
-	av_write_trailer(pFormatCtx);
-
-	av_free(pFrame);
-	av_free(picture_buf);
-	return 0;
+	x264_encoder_close(pHandle);
+	pHandle = NULL;
 }
 
-int h264_deinit(){
-	//Clean
-	if (video_st){
-		avcodec_close(video_st->codec);
-	}
-	avio_close(pFormatCtx->pb);
-	avformat_free_context(pFormatCtx);
-    return 0;
+int h264_deinit()
+{
+    free(pic_buf);
+	x264_picture_clean(pPic_in);
+	free(pPic_in);
+	free(pPic_out);
+	free(pParam);
+
+//	fclose(fp_src);
+	fclose(fp_dst);
+
+	return 0;
 }

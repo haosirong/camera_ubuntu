@@ -1,5 +1,5 @@
 #CFLAGS := -Wdeprecated-declarations -Wunused-result
-LDFLAGS := -lavformat -lavcodec -lavutil -lpthread
+LDFLAGS := -lavformat -lavcodec -lavutil -lpthread -lx264
 cset := open_camera.c ionalloc.c format_convert.c getevent.c
 open_camera:h264_encoder.cpp open_camera.c ionalloc.c format_convert.c getevent.c 
 	gcc -o $@ $^ $(LDFLAGS)
